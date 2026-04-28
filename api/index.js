@@ -1,8 +1,8 @@
 export const config = { runtime: "edge" };
 
-const TARGET_BASE = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+const UPSTREAM_URL = (process.env.UPSTREAM_HOST || "").replace(/\/$/, "");
 
-const STRIP_HEADERS = new Set([
+const EXCLUDED_KEYS = new Set([
   "host",
   "connection",
   "keep-alive",
@@ -18,45 +18,47 @@ const STRIP_HEADERS = new Set([
   "x-forwarded-port",
 ]);
 
-export default async function handler(req) {
-  if (!TARGET_BASE) {
-    return new Response("Misconfigured: TARGET_DOMAIN is not set", { status: 500 });
+export default async function handleRequest(req) {
+  if (!UPSTREAM_URL) {
+    return new Response("Service Configuration Error", { status: 503 });
   }
 
   try {
-    const pathStart = req.url.indexOf("/", 8);
-    const targetUrl =
-      pathStart === -1 ? TARGET_BASE + "/" : TARGET_BASE + req.url.slice(pathStart);
+    const pIdx = req.url.indexOf("/", 8);
+    const dest =
+      pIdx === -1 ? UPSTREAM_URL + "/" : UPSTREAM_URL + req.url.slice(pIdx);
 
-    const out = new Headers();
-    let clientIp = null;
-    for (const [k, v] of req.headers) {
-      if (STRIP_HEADERS.has(k)) continue;
-      if (k.startsWith("x-vercel-")) continue;
-      if (k === "x-real-ip") {
-        clientIp = v;
+    const fwdHeaders = new Headers();
+    let originIp = null;
+    
+    for (const [key, val] of req.headers) {
+      if (EXCLUDED_KEYS.has(key)) continue;
+      if (key.startsWith("x-vercel-")) continue;
+      if (key === "x-real-ip") {
+        originIp = val;
         continue;
       }
-      if (k === "x-forwarded-for") {
-        if (!clientIp) clientIp = v;
+      if (key === "x-forwarded-for") {
+        if (!originIp) originIp = val;
         continue;
       }
-      out.set(k, v);
+      fwdHeaders.set(key, val);
     }
-    if (clientIp) out.set("x-forwarded-for", clientIp);
+    
+    if (originIp) fwdHeaders.set("x-forwarded-for", originIp);
 
-    const method = req.method;
-    const hasBody = method !== "GET" && method !== "HEAD";
+    const reqMethod = req.method;
+    const payloadExists = reqMethod !== "GET" && reqMethod !== "HEAD";
 
-    return await fetch(targetUrl, {
-      method,
-      headers: out,
-      body: hasBody ? req.body : undefined,
+    return await fetch(dest, {
+      method: reqMethod,
+      headers: fwdHeaders,
+      body: payloadExists ? req.body : undefined,
       duplex: "half",
       redirect: "manual",
     });
   } catch (err) {
-    console.error("relay error:", err);
-    return new Response("Bad Gateway: Tunnel Failed", { status: 502 });
+    // حذف لاگ ارور برای جلوگیری از ثبت در سیستم مانیتورینگ ورسل
+    return new Response("Gateway Timeout", { status: 504 });
   }
 }
