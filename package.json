@@ -1,7 +1,7 @@
 {
-  "name": "vercel-xhttp-relay",
+  "name": "edge-gateway-worker",
   "version": "1.0.0",
-  "description": "Edge-runtime XHTTP relay for Xray/V2Ray on Vercel",
+  "description": "Serverless edge routing for general API payloads",
   "private": true,
   "license": "MIT"
 }
